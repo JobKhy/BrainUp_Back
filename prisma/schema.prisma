@@ -1,0 +1,278 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  Admin
+  Staff
+  User
+}
+
+enum BillingCycle {
+  Monthly
+  Annual
+}
+
+enum SubscriptionStatus {
+  Active
+  Expired
+  Cancelled
+}
+
+enum ConsultingPackageType {
+  Hourly
+  Pack8
+}
+
+enum EnrollmentSource {
+  Subscription
+  Purchase
+}
+
+enum ConsultingRequestStatus {
+  Pending
+  Scheduled
+  Completed
+  Cancelled
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id               String   @id @default(uuid())
+  name             String
+  email            String   @unique
+  passwordHash     String
+  role             Role     @default(User)
+  isActive         Boolean  @default(true)
+  phone            String?
+  stripeCustomerId String?  @unique
+  createdAt        DateTime @default(now())
+  deletedAt        DateTime?
+
+  subscription                Subscription?
+  enrollments                 CourseEnrollment[]
+  refreshTokens               RefreshToken[]
+  consulting                  Consulting?
+  adminDeductions             ConsultingDeduction[]    @relation("ConsultingAdmin")
+  consultingRequests          ConsultingRequest[]      @relation("UserConsultingRequests")
+  assignedConsultingRequests  ConsultingRequest[]      @relation("AssignedConsultingRequests")
+  testAttempts                CourseTestAttempt[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Plan {
+  id              String       @id @default(uuid())
+  name            String
+  slug            String       @unique
+  description     String
+  price           Float
+  billingCycle    BillingCycle @default(Monthly)
+  includesVideos  Boolean      @default(false)
+  includesCourses Boolean      @default(false)
+  isActive        Boolean      @default(true)
+  features        String[]
+  displayOrder    Int          @default(0)
+  stripePriceId   String?
+  deletedAt       DateTime?
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  userId               String             @unique
+  user                 User               @relation(fields: [userId], references: [id])
+  planId               String
+  plan                 Plan               @relation(fields: [planId], references: [id])
+  status               SubscriptionStatus @default(Active)
+  startedAt            DateTime           @default(now())
+  expiresAt            DateTime
+  stripeSubscriptionId String?            @unique
+  stripeSessionId      String?
+}
+
+model Video {
+  id              String    @id @default(uuid())
+  title           String
+  description     String
+  url             String
+  thumbnailUrl    String?
+  category        String
+  durationSeconds Int
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
+
+  courseVideos CourseVideo[]
+}
+
+model Course {
+  id              String    @id @default(uuid())
+  title           String
+  description     String
+  instructor      String
+  category        String    @default("")
+  scheduleDate    DateTime
+  durationMinutes Int
+  durationWeeks   Int       @default(1)
+  price           Float     @default(0)
+  stripePriceId   String?
+  maxSeats        Int
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
+
+  enrollments CourseEnrollment[]
+  topics      CourseTopic[]
+  tests       CourseTest[]
+  videos      CourseVideo[]
+}
+
+model CourseEnrollment {
+  id              String           @id @default(uuid())
+  userId          String
+  user            User             @relation(fields: [userId], references: [id])
+  courseId        String
+  course          Course           @relation(fields: [courseId], references: [id])
+  enrolledAt      DateTime         @default(now())
+  source          EnrollmentSource @default(Subscription)
+  stripeSessionId String?
+
+  @@unique([userId, courseId])
+}
+
+model ConsultingRequest {
+  id              String                  @id @default(uuid())
+  userId          String
+  user            User                    @relation("UserConsultingRequests", fields: [userId], references: [id])
+  subject         String
+  topic           String
+  preferredDate   DateTime
+  notes           String?
+  hours           Int                     @default(1)
+  stripeSessionId String?
+  status          ConsultingRequestStatus @default(Pending)
+  assignedToId    String?
+  assignedTo      User?                   @relation("AssignedConsultingRequests", fields: [assignedToId], references: [id])
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+}
+
+// ─── Consulting ───────────────────────────────────────────────────────────────
+
+model Consulting {
+  id         String    @id @default(uuid())
+  userId     String    @unique
+  user       User      @relation(fields: [userId], references: [id])
+  totalHours Float     @default(0)
+  usedHours  Float     @default(0)
+  whatsapp   String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  purchases  ConsultingPurchase[]
+  deductions ConsultingDeduction[]
+}
+
+model ConsultingPurchase {
+  id              String                @id @default(uuid())
+  consultingId    String
+  consulting      Consulting            @relation(fields: [consultingId], references: [id])
+  packageType     ConsultingPackageType
+  hours           Float
+  stripePriceId   String?
+  stripeSessionId String?
+  purchasedAt     DateTime              @default(now())
+}
+
+model ConsultingDeduction {
+  id            String     @id @default(uuid())
+  consultingId  String
+  consulting    Consulting @relation(fields: [consultingId], references: [id])
+  hoursDeducted Float
+  note          String?
+  adminId       String
+  admin         User       @relation("ConsultingAdmin", fields: [adminId], references: [id])
+  createdAt     DateTime   @default(now())
+}
+
+// ─── Course Videos ────────────────────────────────────────────────────────────
+
+model CourseVideo {
+  id        String   @id @default(uuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id])
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id])
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([courseId, videoId])
+}
+
+// ─── Course Content ────────────────────────────────────────────────────────────
+
+model CourseTopic {
+  id          String   @id @default(uuid())
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id])
+  title       String
+  description String
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CourseTest {
+  id          String   @id @default(uuid())
+  courseId    String
+  course      Course   @relation(fields: [courseId], references: [id])
+  title       String
+  description String   @default("")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  questions CourseQuestion[]
+  attempts  CourseTestAttempt[]
+}
+
+model CourseQuestion {
+  id           String     @id @default(uuid())
+  testId       String
+  test         CourseTest @relation(fields: [testId], references: [id])
+  question     String
+  options      String[]
+  correctIndex Int
+  order        Int        @default(0)
+}
+
+model CourseTestAttempt {
+  id             String     @id @default(uuid())
+  userId         String
+  user           User       @relation(fields: [userId], references: [id])
+  testId         String
+  test           CourseTest @relation(fields: [testId], references: [id])
+  score          Float
+  totalQuestions Int
+  answers        Int[]
+  completedAt    DateTime   @default(now())
+
+  @@unique([userId, testId])
+}
