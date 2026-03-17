@@ -52,8 +52,11 @@ app.use('/api/course-content', courseContentRouter);
 app.use(errorHandler);
 
 const PORT = parseInt(process.env.PORT || '5167', 10);
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`BrainUp backend running on http://localhost:${PORT}`);
 });
+
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 66000;
 
 export default app;
